@@ -1,0 +1,2 @@
+pyserial>=3.5
+tweepy>=4.14
