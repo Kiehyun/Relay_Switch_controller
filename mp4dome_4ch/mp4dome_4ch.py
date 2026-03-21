@@ -6,7 +6,7 @@ import importlib
 from datetime import datetime
 from typing import Optional
 import tkinter as tk
-from tkinter import ttk
+from tkinter import messagebox, ttk
 
 # -------------------------------------------------------
 # X(Twitter) .env 설정 방법
@@ -65,15 +65,21 @@ list_ports = serial_tools
 BAUDRATES = [9600]
 
 
+def _app_dir() -> str:
+    """exe(frozen) 로 실행될 때와 .py 로 실행될 때 모두 올바른 앱 디렉터리를 반환."""
+    if getattr(sys, "frozen", False):
+        return os.path.dirname(sys.executable)
+    return os.path.dirname(os.path.abspath(__file__))
+
+
 class RelayControllerApp:
     def __init__(self, root: tk.Tk):
-        script_dir = os.path.dirname(os.path.abspath(__file__))
-        self.dotenv_path = os.path.join(script_dir, ".env")
+        self.dotenv_path = os.path.join(_app_dir(), ".env")
         self.dotenv_loaded = _load_dotenv(self.dotenv_path)
 
         self.root = root
         self.root.title("MP 4Dome Open/Close Controller")
-        self.root.geometry("300x500")
+        self.root.geometry("300x560")
         self.root.configure(bg="black")
         self.root.resizable(False, False)
 
@@ -140,20 +146,38 @@ class RelayControllerApp:
         )
         style.map("ActionClose.TButton", background=[("active", "#ce4e36")])
 
-        ttk.Label(self.root, text="COM Port").place(x=20, y=36)
-        self.port_combo = ttk.Combobox(self.root, state="readonly", width=13)
-        self.port_combo.place(x=20, y=58)
+        tk.Label(
+            self.root,
+            text="Mang Po High School",
+            fg="#f3f6fb",
+            bg=bg_main,
+            anchor="center",
+            font=("Segoe UI", 13, "bold"),
+        ).place(x=20, y=18, width=260)
 
-        ttk.Label(self.root, text="Baudrate").place(x=130, y=36)
+        tk.Label(
+            self.root,
+            text="4 dome controller",
+            fg="#9fb3c8",
+            bg=bg_main,
+            anchor="center",
+            font=("Segoe UI", 11),
+        ).place(x=20, y=44, width=260)
+
+        ttk.Label(self.root, text="COM Port").place(x=20, y=82)
+        self.port_combo = ttk.Combobox(self.root, state="readonly", width=13)
+        self.port_combo.place(x=20, y=104)
+
+        ttk.Label(self.root, text="Baudrate").place(x=130, y=82)
         self.baud_combo = ttk.Combobox(self.root, state="readonly", width=8, values=[str(b) for b in BAUDRATES])
-        self.baud_combo.place(x=120, y=58)
+        self.baud_combo.place(x=120, y=104)
         self.baud_combo.set("9600")
 
         ttk.Button(self.root, text="Connect", style="Connect.TButton", command=self.connect_serial).place(
-            x=185, y=56, width=90, height=24
+            x=185, y=102, width=90, height=24
         )
         ttk.Button(self.root, text="Disconnect", style="Disconnect.TButton", command=self.disconnect_serial).place(
-            x=185, y=86, width=90, height=24
+            x=185, y=132, width=90, height=24
         )
 
         self.connection_label = tk.Label(
@@ -164,16 +188,16 @@ class RelayControllerApp:
             anchor="w",
             font=("Segoe UI", 9),
         )
-        self.connection_label.place(x=20, y=92)
+        self.connection_label.place(x=20, y=138)
 
         ttk.Button(self.root, text="OPEN", style="ActionOpen.TButton", command=self.do_open).place(
-            x=20, y=140, width=260, height=80
+            x=20, y=186, width=260, height=80
         )
         ttk.Button(self.root, text="CLOSE", style="ActionClose.TButton", command=self.do_close).place(
-            x=20, y=240, width=260, height=80
+            x=20, y=286, width=260, height=80
         )
 
-        tk.Label(self.root, text="최근 동작 버튼", fg="#d5dee8", bg=bg_main, anchor="w", font=("Segoe UI", 9)).place(x=20, y=350)
+        tk.Label(self.root, text="최근 동작 버튼", fg="#d5dee8", bg=bg_main, anchor="w", font=("Segoe UI", 9)).place(x=20, y=396)
         self.last_action_label = tk.Label(
             self.root,
             text="-",
@@ -182,9 +206,9 @@ class RelayControllerApp:
             anchor="w",
             font=("Segoe UI", 14, "bold"),
         )
-        self.last_action_label.place(x=20, y=372)
+        self.last_action_label.place(x=20, y=418)
 
-        tk.Label(self.root, text="최근 동작 시각", fg="#d5dee8", bg=bg_main, anchor="w", font=("Segoe UI", 9)).place(x=20, y=404)
+        tk.Label(self.root, text="최근 동작 시각", fg="#d5dee8", bg=bg_main, anchor="w", font=("Segoe UI", 9)).place(x=20, y=450)
         self.last_time_label = tk.Label(
             self.root,
             text="-",
@@ -193,7 +217,7 @@ class RelayControllerApp:
             anchor="w",
             font=("Segoe UI", 10),
         )
-        self.last_time_label.place(x=20, y=426)
+        self.last_time_label.place(x=20, y=472)
 
         self.clock_label = tk.Label(
             self.root,
@@ -204,7 +228,7 @@ class RelayControllerApp:
             width=34,
             font=("Consolas", 10),
         )
-        self.clock_label.place(x=20, y=452)
+        self.clock_label.place(x=20, y=498)
 
         self.status_label = tk.Label(
             self.root,
@@ -216,7 +240,7 @@ class RelayControllerApp:
             font=("Segoe UI", 9, "bold"),
             padx=8,
         )
-        self.status_label.place(x=20, y=476)
+        self.status_label.place(x=20, y=522)
 
         self.refresh_ports()
 
@@ -267,16 +291,44 @@ class RelayControllerApp:
             self._set_status("Disconnected", level="info")
 
     def do_open(self):
+        if not self._ensure_serial_connected_for_action("열기"):
+            return
+        if not self._confirm_action("열기"):
+            return
+
         self._send_command_pair("o", "O")
         self._update_last_action("열기(OPEN)")
         self._set_status("OPEN command sent: o, O", level="success")
         self._send_result_to_x("열기")
 
     def do_close(self):
+        if not self._ensure_serial_connected_for_action("닫기"):
+            return
+        if not self._confirm_action("닫기"):
+            return
+
         self._send_command_pair("c", "C")
         self._update_last_action("닫기(CLOSE)")
         self._set_status("CLOSE command sent: c, C", level="success")
         self._send_result_to_x("닫기")
+
+    def _ensure_serial_connected_for_action(self, action_name: str) -> bool:
+        if self.connected_serial and self.serial_conn is not None:
+            return True
+
+        warning_message = f"시리얼을 먼저 연결한 뒤 {action_name} 버튼을 눌러주세요."
+        self._set_status(warning_message, level="warning")
+        messagebox.showwarning("시리얼 연결 필요", warning_message)
+        return False
+
+    def _confirm_action(self, action_name: str) -> bool:
+        confirm_message = f"{action_name} 동작을 실행할까요?"
+        confirmed = messagebox.askokcancel("동작 확인", confirm_message)
+
+        if not confirmed:
+            self._set_status(f"{action_name} 동작이 취소되었습니다.", level="info")
+
+        return confirmed
 
     def _send_command_pair(self, cmd1: str, cmd2: str):
         self._serial_write(cmd1)
