@@ -77,6 +77,10 @@ int statusPin4 = 0;
 
 char lastCommand = '-';
 unsigned long lastCommandTime = 0;
+const unsigned long relayOffIntervalMs = 60000UL;
+const unsigned long statusReportIntervalMs = 10000UL;
+unsigned long lastRelayOffTime = 0;
+unsigned long lastStatusReportTime = 0;
 
 // ---- 출력 헬퍼: USB 시리얼 + 블루투스 양쪽에 전송 ----
 void serialPrintBoth(const String &msg) {
@@ -94,6 +98,43 @@ void printStatus() {
                ") last:" + lastCommand +
                " elapsed:" + String(millis() - lastCommandTime) + "ms";
   serialPrintBoth(msg);
+}
+
+// ---- 안전 OFF: 1분마다 모든 릴레이 출력을 LOW로 정리 ----
+void turnAllRelaysOff(const String &reason) {
+  digitalWrite(relayPin1, LOW);
+  digitalWrite(relayPin2, LOW);
+  digitalWrite(relayPin3, LOW);
+  digitalWrite(relayPin4, LOW);
+
+  statusPin1 = 0;
+  statusPin2 = 0;
+  statusPin3 = 0;
+  statusPin4 = 0;
+
+  serialPrintBoth(reason);
+}
+
+void periodicRelayOff() {
+  unsigned long now = millis();
+  if (now - lastRelayOffTime < relayOffIntervalMs) {
+    return;
+  }
+
+  lastRelayOffTime = now;
+  turnAllRelaysOff("AUTO: all relay pins OFF (1 minute interval)");
+  printStatus();
+  lastStatusReportTime = now;
+}
+
+void periodicStatusReport() {
+  unsigned long now = millis();
+  if (now - lastStatusReportTime < statusReportIntervalMs) {
+    return;
+  }
+
+  lastStatusReportTime = now;
+  printStatus();
 }
 
 // ---- OPEN: relayPin3 (o/O) ----
@@ -140,10 +181,15 @@ void setup() {
   pinMode(relayPin2, OUTPUT);
   pinMode(relayPin3, OUTPUT);
   pinMode(relayPin4, OUTPUT);
+  turnAllRelaysOff("INIT: all relay pins OFF");
+  lastRelayOffTime = millis();
+  lastStatusReportTime = millis();
 
   serialPrintBoth("GS Relay Switch Controller ready.");
   serialPrintBoth("  o/O : OPEN  (relayPin3, 500ms pulse)");
   serialPrintBoth("  c/C : CLOSE (relayPin2, 500ms pulse)");
+  serialPrintBoth("  AUTO: all relay pins OFF every 1 minute");
+  serialPrintBoth("  STATUS: report every 10 seconds");
 }
 
 void loop() {
@@ -155,4 +201,6 @@ void loop() {
   if (btSerial.available()) {
     processCommand((char)btSerial.read());
   }
+  periodicRelayOff();
+  periodicStatusReport();
 }

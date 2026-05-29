@@ -215,6 +215,7 @@ list_ports = serial_tools
 
 
 BAUDRATES = [9600]
+SERIAL_POLL_INTERVAL_MS = 100
 TIME_SYNC_INTERVAL_MS = 5 * 60 * 1000
 
 
@@ -232,6 +233,7 @@ class RelayControllerApp:
 
         self.serial_conn = None
         self.connected_serial = False
+        self.serial_rx_buffer = ""
         self.previous_second = None
         self.last_action = "-"
         self.last_action_time = "-"
@@ -247,6 +249,7 @@ class RelayControllerApp:
         self._log_event("Application started")
         self._show_x_config_status_on_startup()
         self._update_clock_loop()
+        self._read_serial_loop()
         self._schedule_time_sync(initial_delay_ms=1000)
 
     def _build_ui(self):
@@ -481,6 +484,7 @@ class RelayControllerApp:
         try:
             self.serial_conn = serial.Serial(port, int(baud), timeout=0.2)
             self.connected_serial = True
+            self.serial_rx_buffer = ""
             self._serial_write("G;")
             self.connection_label.config(text="Serial connected")
             self._apply_connection_theme(True)
@@ -506,6 +510,7 @@ class RelayControllerApp:
         finally:
             self.serial_conn = None
             self.connected_serial = False
+            self.serial_rx_buffer = ""
             self.connection_label.config(text="Serial disconnected")
             self._apply_connection_theme(False)
             self._update_connection_buttons()
@@ -584,6 +589,45 @@ class RelayControllerApp:
         if not self.connected_serial or self.serial_conn is None:
             return
         self.serial_conn.write(payload.encode("ascii", errors="ignore"))
+
+    def _read_serial_loop(self):
+        if self.connected_serial and self.serial_conn is not None:
+            try:
+                waiting = self.serial_conn.in_waiting
+                if waiting:
+                    raw_data = self.serial_conn.read(waiting)
+                    self._print_serial_rx(raw_data)
+            except Exception as exc:
+                self._log_event(f"Serial read failed: {exc}")
+                self._set_status(f"Serial read failed: {exc}", level="error")
+                try:
+                    if self.serial_conn is not None:
+                        self.serial_conn.close()
+                finally:
+                    self.serial_conn = None
+                    self.connected_serial = False
+                    self.serial_rx_buffer = ""
+                    self.connection_label.config(text="Serial disconnected")
+                    self._apply_connection_theme(False)
+                    self._update_connection_buttons()
+
+        self.root.after(SERIAL_POLL_INTERVAL_MS, self._read_serial_loop)
+
+    def _print_serial_rx(self, raw_data: bytes):
+        if not raw_data:
+            return
+
+        self.serial_rx_buffer += raw_data.decode("utf-8", errors="replace")
+
+        while "\n" in self.serial_rx_buffer:
+            line, self.serial_rx_buffer = self.serial_rx_buffer.split("\n", 1)
+            line = line.rstrip("\r")
+            if line:
+                print(f"SERIAL RX: {line}")
+
+        if len(self.serial_rx_buffer) > 512:
+            print(f"SERIAL RX: {self.serial_rx_buffer}")
+            self.serial_rx_buffer = ""
 
     def _set_status(self, text: str, level: str = "info"):
         color_map = {
