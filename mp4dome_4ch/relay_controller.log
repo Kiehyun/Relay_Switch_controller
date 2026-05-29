@@ -1,0 +1,46 @@
+[2026-03-22 13:03:37] Application started
+[2026-03-22 13:03:38] Time sync failed: 로컬 컴퓨터에 다시 동기화 명령을 보내는 중
+다음 오류가 발생했습니다. 액세스가 거부되었습니다. (0x80070005)
+[2026-03-22 13:03:41] Serial connected: port=COM4, baud=9600
+[2026-03-22 13:03:48] Serial disconnected
+[2026-03-22 13:03:49] Serial connected: port=COM4, baud=9600
+[2026-03-22 13:03:52] Action executed: OPEN
+[2026-03-22 13:05:45] Serial disconnected
+[2026-03-22 04:19:12] Application started
+[2026-03-22 04:19:13] Time sync failed: 다음 오류가 발생했습니다. 서비스가 시작되지 않았습니다. (0x80070426)
+[2026-03-22 12:19:32] Time sync failed: 로컬 컴퓨터에 다시 동기화 명령을 보내는 중
+다음 오류가 발생했습니다. 액세스가 거부되었습니다. (0x80070005)
+[2026-03-22 12:19:44] Application started
+[2026-03-22 12:19:45] Time sync failed: 로컬 컴퓨터에 다시 동기화 명령을 보내는 중
+다음 오류가 발생했습니다. 액세스가 거부되었습니다. (0x80070005)
+[2026-03-22 12:19:47] Serial connected: port=COM5, baud=9600
+[2026-03-22 12:19:48] PC time sent to device: payload=T121948
+[2026-03-22 12:19:57] PC time sent to device: payload=T121957
+[2026-03-22 12:20:06] Manual time sync requested
+[2026-03-22 12:20:06] Time sync failed: 로컬 컴퓨터에 다시 동기화 명령을 보내는 중
+다음 오류가 발생했습니다. 액세스가 거부되었습니다. (0x80070005)
+[2026-03-22 12:20:11] Manual time sync requested
+[2026-03-22 12:20:11] Time sync failed: 로컬 컴퓨터에 다시 동기화 명령을 보내는 중
+다음 오류가 발생했습니다. 액세스가 거부되었습니다. (0x80070005)
+[2026-03-22 12:21:31] Manual time sync requested
+[2026-03-22 12:21:31] Time sync failed: 로컬 컴퓨터에 다시 동기화 명령을 보내는 중
+다음 오류가 발생했습니다. 액세스가 거부되었습니다. (0x80070005)
+[2026-03-22 12:21:34] Manual time sync requested
+[2026-03-22 12:21:34] Time sync failed: 로컬 컴퓨터에 다시 동기화 명령을 보내는 중
+다음 오류가 발생했습니다. 액세스가 거부되었습니다. (0x80070005)
+[2026-03-22 12:21:51] Serial disconnected
+[2026-03-22 12:21:53] Application started
+[2026-03-22 12:21:55] Time sync failed (admin required): 로컬 컴퓨터에 다시 동기화 명령을 보내는 중
+다음 오류가 발생했습니다. 액세스가 거부되었습니다. (0x80070005)
+[2026-03-22 12:21:55] Auto time sync disabled due to access denied (0x80070005)
+[2026-03-22 12:21:55] Serial connected: port=COM5, baud=9600
+[2026-03-22 12:21:58] Manual time sync requested
+[2026-03-22 12:21:58] Time sync failed (admin required): 로컬 컴퓨터에 다시 동기화 명령을 보내는 중
+다음 오류가 발생했습니다. 액세스가 거부되었습니다. (0x80070005)
+[2026-03-22 12:22:01] Manual time sync requested
+[2026-03-22 12:22:01] Time sync failed (admin required): 로컬 컴퓨터에 다시 동기화 명령을 보내는 중
+다음 오류가 발생했습니다. 액세스가 거부되었습니다. (0x80070005)
+[2026-03-22 12:22:21] PC time sent to device: payload=T122221
+[2026-03-22 12:22:29] Action executed: OPEN
+[2026-03-22 12:23:04] Serial disconnected
+[2026-05-29 18:57:36] Application started
