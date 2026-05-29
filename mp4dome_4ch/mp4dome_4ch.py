@@ -1,13 +1,24 @@
+from __future__ import annotations
+
 import os
+import platform
 import sys
 import time
 import subprocess
 import importlib
 import shutil
-from datetime import datetime
-from typing import Optional
-import tkinter as tk
-from tkinter import messagebox, ttk
+from datetime import datetime, timezone
+from typing import Callable, Optional
+
+try:
+    import tkinter as tk
+    from tkinter import messagebox, ttk
+    TKINTER_IMPORT_ERROR = None
+except ImportError as exc:
+    tk = None
+    messagebox = None
+    ttk = None
+    TKINTER_IMPORT_ERROR = exc
 
 # -------------------------------------------------------
 # X(Twitter) .env 설정 방법
@@ -19,6 +30,28 @@ from tkinter import messagebox, ttk
 #    - TWITTER_ACCESS_TOKEN
 #    - TWITTER_ACCESS_TOKEN_SECRET
 # -------------------------------------------------------
+
+
+def _app_dir() -> str:
+    """exe(frozen) 로 실행될 때와 .py 로 실행될 때 모두 올바른 앱 디렉터리를 반환."""
+    if getattr(sys, "frozen", False):
+        return os.path.dirname(sys.executable)
+    return os.path.dirname(os.path.abspath(__file__))
+
+
+def _local_dependency_dir() -> str:
+    python_tag = f"py{sys.version_info.major}{sys.version_info.minor}"
+    return os.path.join(_app_dir(), ".python-packages", python_tag)
+
+
+def _activate_local_dependency_dir() -> str:
+    dependency_dir = _local_dependency_dir()
+    if dependency_dir not in sys.path:
+        sys.path.insert(0, dependency_dir)
+    return dependency_dir
+
+
+LOCAL_DEPENDENCY_DIR = _activate_local_dependency_dir()
 
 
 def _load_dotenv(dotenv_path: str) -> bool:
@@ -41,67 +74,148 @@ def _load_dotenv(dotenv_path: str) -> bool:
     return True
 
 
-def _try_install_package(import_name: str, package: str) -> bool:
-    attempts = [
-        [sys.executable, "-m", "pip", "install", package],
-        [sys.executable, "-m", "pip", "install", "--user", package],
-    ]
+def _run_install_command(command):
+    print("Running:", " ".join(command))
+    try:
+        subprocess.check_call(command)
+        return True
+    except Exception as exc:
+        print(f"Command failed: {exc}")
+        return False
 
-    # pip 자체가 비활성인 환경(일부 conda/임베디드) 대비
-    attempts.append([sys.executable, "-m", "ensurepip", "--upgrade"])
-    attempts.append([sys.executable, "-m", "pip", "install", package])
+
+def _ensure_pip_available() -> bool:
+    try:
+        subprocess.check_call(
+            [sys.executable, "-m", "pip", "--version"],
+            stdout=subprocess.DEVNULL,
+            stderr=subprocess.DEVNULL,
+        )
+        return True
+    except Exception:
+        print("pip not found. Trying ensurepip...")
+        return _run_install_command([sys.executable, "-m", "ensurepip", "--upgrade"])
+
+
+def _conda_package_name(package_spec: str) -> str:
+    name = package_spec
+    for marker in ("==", ">=", "<=", "~=", "!=", ">", "<"):
+        if marker in name:
+            name = name.split(marker, 1)[0]
+            break
+    return name.strip()
+
+
+def _install_package_specs(package_specs) -> bool:
+    unique_specs = []
+    for spec in package_specs:
+        if spec not in unique_specs:
+            unique_specs.append(spec)
+
+    if not unique_specs:
+        return True
+
+    if _ensure_pip_available():
+        os.makedirs(LOCAL_DEPENDENCY_DIR, exist_ok=True)
+        pip_attempts = [
+            [
+                sys.executable,
+                "-m",
+                "pip",
+                "install",
+                "--disable-pip-version-check",
+                "--upgrade",
+                "--target",
+                LOCAL_DEPENDENCY_DIR,
+            ]
+            + unique_specs,
+            [sys.executable, "-m", "pip", "install", "--disable-pip-version-check", "--upgrade"] + unique_specs,
+            [sys.executable, "-m", "pip", "install", "--upgrade"] + unique_specs,
+            [sys.executable, "-m", "pip", "install", "--disable-pip-version-check", "--user", "--upgrade"]
+            + unique_specs,
+        ]
+        for command in pip_attempts:
+            if _run_install_command(command):
+                _activate_local_dependency_dir()
+                importlib.invalidate_caches()
+                return True
 
     conda_cmd = shutil.which("conda")
     if conda_cmd:
-        attempts.append([conda_cmd, "install", "-y", package])
-
-    for cmd in attempts:
-        try:
-            subprocess.check_call(cmd)
-            try:
-                importlib.import_module(import_name)
-                return True
-            except ImportError:
-                continue
-        except Exception:
-            continue
+        conda_packages = [_conda_package_name(spec) for spec in unique_specs]
+        if _run_install_command([conda_cmd, "install", "-y"] + conda_packages):
+            importlib.invalidate_caches()
+            return True
 
     return False
 
 
-def _ensure_package(import_name: str, package_name: Optional[str] = None, required: bool = True):
-    package = package_name or import_name
+def _import_dependency(import_name: str, validator: Optional[Callable] = None):
     try:
-        return importlib.import_module(import_name)
+        module = importlib.import_module(import_name)
     except ImportError:
-        print(f"Missing module '{import_name}'. Installing '{package}'...")
-        try:
-            installed = _try_install_package(import_name, package)
-            if installed:
-                return importlib.import_module(import_name)
-            raise ImportError(f"Unable to auto-install '{package}'")
-        except Exception as exc:
-            print(f"Auto-install failed for '{package}': {exc}")
+        return None
+
+    if validator is not None and not validator(module):
+        return None
+
+    return module
+
+
+def _clear_imported_dependencies(import_names):
+    roots = {import_name.split(".", 1)[0] for import_name in import_names}
+    for module_name in list(sys.modules):
+        if module_name in roots or any(module_name.startswith(f"{root}.") for root in roots):
+            sys.modules.pop(module_name, None)
+
+
+def _ensure_runtime_dependencies():
+    dependencies = [
+        ("serial", "pyserial>=3.5", True, lambda module: hasattr(module, "Serial")),
+        ("serial.tools.list_ports", "pyserial>=3.5", True, lambda module: hasattr(module, "comports")),
+        ("tweepy", "tweepy>=4.14", False, None),
+    ]
+
+    modules = {}
+    missing_specs = []
+    for import_name, package_spec, _required, validator in dependencies:
+        module = _import_dependency(import_name, validator)
+        modules[import_name] = module
+        if module is None:
+            missing_specs.append(package_spec)
+
+    if missing_specs:
+        print("필요한 Python 모듈을 자동 설치합니다:", ", ".join(sorted(set(missing_specs))))
+        _install_package_specs(missing_specs)
+        _clear_imported_dependencies([import_name for import_name, _package_spec, _required, _validator in dependencies])
+
+    failed_required = []
+    failed_optional = []
+    for import_name, package_spec, required, validator in dependencies:
+        module = _import_dependency(import_name, validator)
+        modules[import_name] = module
+        if module is None:
+            target = f"{package_spec} (import: {import_name})"
             if required:
-                return None
-            return None
+                failed_required.append(target)
+            else:
+                failed_optional.append(target)
+
+    if failed_optional:
+        print("선택 모듈 설치 실패, 해당 기능을 비활성화합니다:", ", ".join(failed_optional))
+
+    return modules, failed_required
 
 
-serial = _ensure_package("serial", "pyserial", required=True)
-serial_tools = _ensure_package("serial.tools.list_ports", "pyserial", required=True)
-tweepy = _ensure_package("tweepy", "tweepy", required=False)
+runtime_modules, REQUIRED_DEPENDENCY_ERRORS = _ensure_runtime_dependencies()
+serial = runtime_modules.get("serial")
+serial_tools = runtime_modules.get("serial.tools.list_ports")
+tweepy = runtime_modules.get("tweepy")
 list_ports = serial_tools
 
 
 BAUDRATES = [9600]
 TIME_SYNC_INTERVAL_MS = 5 * 60 * 1000
-
-
-def _app_dir() -> str:
-    """exe(frozen) 로 실행될 때와 .py 로 실행될 때 모두 올바른 앱 디렉터리를 반환."""
-    if getattr(sys, "frozen", False):
-        return os.path.dirname(sys.executable)
-    return os.path.dirname(os.path.abspath(__file__))
 
 
 class RelayControllerApp:
@@ -121,7 +235,7 @@ class RelayControllerApp:
         self.previous_second = None
         self.last_action = "-"
         self.last_action_time = "-"
-        self.auto_time_sync_enabled = True
+        self.auto_time_sync_enabled = platform.system() == "Windows"
 
         self.bg_disconnected = "#11151c"
         self.bg_connected = "#0f1f1a"
@@ -504,15 +618,75 @@ class RelayControllerApp:
 
         self._set_status("X 설정 완료", level="success")
 
-    def _sync_system_time_with_server(self, manual: bool = False):
-        if os.name != "nt":
-            print("Time sync skipped: unsupported OS")
-            return
+    def _time_sync_commands(self):
+        system_name = platform.system()
 
-        commands = [
-            ["w32tm", "/resync"],
-            ["w32tm", "/resync", "/force"],
+        if system_name == "Windows":
+            return [
+                ["w32tm", "/resync"],
+                ["w32tm", "/resync", "/force"],
+            ]
+
+        if system_name == "Darwin":
+            commands = []
+            sntp_cmd = shutil.which("sntp")
+            if sntp_cmd:
+                commands.append([sntp_cmd, "-sS", "time.apple.com"])
+
+            systemsetup_cmd = shutil.which("systemsetup")
+            if systemsetup_cmd:
+                commands.append([systemsetup_cmd, "-setusingnetworktime", "on"])
+
+            return commands
+
+        if system_name == "Linux":
+            commands = []
+            timedatectl_cmd = shutil.which("timedatectl")
+            if timedatectl_cmd:
+                commands.append([timedatectl_cmd, "set-ntp", "true"])
+
+            chronyc_cmd = shutil.which("chronyc")
+            if chronyc_cmd:
+                commands.append([chronyc_cmd, "-a", "makestep"])
+
+            ntpdate_cmd = shutil.which("ntpdate")
+            if ntpdate_cmd:
+                commands.append([ntpdate_cmd, "-u", "pool.ntp.org"])
+
+            return commands
+
+        return []
+
+    def _is_admin_required_error(self, message: str) -> bool:
+        lower_message = message.lower()
+        admin_markers = [
+            "0x80070005",
+            "access is denied",
+            "access denied",
+            "permission denied",
+            "operation not permitted",
+            "not permitted",
+            "must be root",
+            "authentication is required",
+            "administrator",
+            "admin required",
+            "액세스가 거부되었습니다",
+            "관리자",
         ]
+        return any(marker in lower_message for marker in admin_markers)
+
+    def _sync_system_time_with_server(self, manual: bool = False):
+        commands = self._time_sync_commands()
+        system_name = platform.system() or sys.platform
+
+        if not commands:
+            message = f"Time sync skipped: {system_name}에서 사용할 수 있는 시간 동기화 명령을 찾지 못했습니다."
+            print(message)
+            self._log_event(message)
+            if manual:
+                self._set_status("Time sync unavailable", level="warning")
+            self.auto_time_sync_enabled = False
+            return
 
         last_output = ""
         for command in commands:
@@ -525,9 +699,9 @@ class RelayControllerApp:
                     check=False,
                 )
                 output = (completed.stdout or completed.stderr or "").strip()
-                last_output = output
+                last_output = output or f"{' '.join(command)} exited with {completed.returncode}"
                 if completed.returncode == 0:
-                    message = f"Time sync OK: {output or 'w32tm /resync succeeded'}"
+                    message = f"Time sync OK: {output or 'command succeeded'}"
                     print(message)
                     self._log_event(message)
                     self._set_status("Time sync OK", level="info")
@@ -536,12 +710,7 @@ class RelayControllerApp:
                 last_output = str(exc)
 
         raw_error = last_output or "unknown error"
-        lower_error = raw_error.lower()
-        access_denied = (
-            "0x80070005" in lower_error
-            or "access is denied" in lower_error
-            or "\uc561\uc138\uc2a4\uac00 \uac70\ubd80\ub418\uc5c8\uc2b5\ub2c8\ub2e4" in lower_error
-        )
+        access_denied = self._is_admin_required_error(raw_error)
 
         if access_denied:
             message = f"Time sync failed (admin required): {raw_error}"
@@ -551,7 +720,7 @@ class RelayControllerApp:
 
             if not manual and self.auto_time_sync_enabled:
                 self.auto_time_sync_enabled = False
-                self._log_event("Auto time sync disabled due to access denied (0x80070005)")
+                self._log_event("Auto time sync disabled due to admin permission failure")
             return
 
         message = f"Time sync failed: {raw_error}"
@@ -560,16 +729,22 @@ class RelayControllerApp:
         self._set_status("Time sync failed", level="warning")
 
     def _schedule_time_sync(self, initial_delay_ms: int = TIME_SYNC_INTERVAL_MS):
+        if not self.auto_time_sync_enabled:
+            return
+
         def _run_sync():
+            if not self.auto_time_sync_enabled:
+                return
+
+            self._sync_system_time_with_server()
             if self.auto_time_sync_enabled:
-                self._sync_system_time_with_server()
-            self.root.after(TIME_SYNC_INTERVAL_MS, _run_sync)
+                self.root.after(TIME_SYNC_INTERVAL_MS, _run_sync)
 
         self.root.after(initial_delay_ms, _run_sync)
 
     def _update_clock_loop(self):
         now = datetime.now()
-        utc_now = datetime.utcnow()
+        utc_now = datetime.now(timezone.utc)
         self.clock_label.config(
             text=(
                 f"KST {now.strftime('%Y-%m-%d %H:%M:%S')}\n"
@@ -629,18 +804,35 @@ class RelayControllerApp:
 
 
 def main():
-    if serial is None or list_ports is None:
-        missing = []
-        if serial is None:
-            missing.append("pyserial(import: serial)")
-        if list_ports is None:
-            missing.append("pyserial(import: serial.tools.list_ports)")
+    if tk is None or messagebox is None or ttk is None:
+        system_name = platform.system()
+        if system_name == "Linux":
+            install_hint = "Ubuntu/Debian: sudo apt install python3-tk"
+        elif system_name == "Darwin":
+            install_hint = "macOS: python.org Python을 사용하거나 Homebrew Python/Tk 설치를 확인하세요."
+        elif system_name == "Windows":
+            install_hint = "Windows: python.org 설치 관리자에서 Tcl/Tk 옵션을 포함해 Python을 다시 설치하세요."
+        else:
+            install_hint = "현재 OS의 Python Tkinter 패키지를 설치하세요."
 
         message = (
+            "GUI 실행에 필요한 tkinter 모듈을 찾지 못했습니다.\n"
+            f"오류: {TKINTER_IMPORT_ERROR}\n\n"
+            f"{install_hint}"
+        )
+        print(message)
+        return
+
+    if REQUIRED_DEPENDENCY_ERRORS:
+        message = (
             "필수 모듈 자동 설치에 실패했습니다.\n"
-            f"누락: {', '.join(missing)}\n\n"
+            f"누락: {', '.join(REQUIRED_DEPENDENCY_ERRORS)}\n\n"
+            "앱 폴더의 .python-packages 자동 설치가 실패했습니다.\n"
             "아래 명령으로 수동 설치 후 다시 실행해 주세요.\n"
-            f"{sys.executable} -m pip install pyserial"
+            f"{sys.executable} -m pip install --upgrade --target \"{LOCAL_DEPENDENCY_DIR}\" pyserial\n\n"
+            "만약 serial 패키지 충돌이 계속되면 아래 명령도 실행해 주세요.\n"
+            f"{sys.executable} -m pip uninstall -y serial\n"
+            f"{sys.executable} -m pip install --upgrade --target \"{LOCAL_DEPENDENCY_DIR}\" pyserial"
         )
 
         print(message)
